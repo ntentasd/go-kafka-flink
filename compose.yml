@@ -1,0 +1,93 @@
+services:
+  kafka:
+    image: bitnami/kafka:latest
+    container_name: kafka
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      # defines the kafka process as both a broker (handling data) and a controller (managing metadata)
+      KAFKA_CFG_PROCESS_ROLES: broker,controller 
+      # a unique id for this kafka node
+      KAFKA_CFG_NODE_ID: 0
+      # specifies the quorum of controller nodes, here it's a single-node setup
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+      KAFKA_KRAFT_CLUSTER_ID: aWhhdGVuaWdnZXJz
+      # configures how clients and controllers connect (PLAINTEXT://:9092 for clients, CONTROLLER://:9093 for controllers)
+      KAFKA_CFG_LISTENERS: CLIENT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_ADVERTISED_LISTENERS: CLIENT://kafka:9092,CONTROLLER://kafka:9093
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CLIENT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      # defines the listener name for broker-to-broker communication
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: CLIENT
+      # path were kafka stores log data
+      KAFKA_CFG_LOG_DIRS: /bitnami/kafka/data
+      # set to 1 since we are running a single broker
+      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      # ensures transaction log safety with minimal in-sync replicas
+      KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    volumes:
+      - kafka_data:/bitnami/kafka
+    networks:
+      - kafka-flink-network
+
+  # the central node responsible for orchestration and scheduling of jobs
+  flink-jobmanager:
+    image: flink:latest
+    container_name: flink-jobmanager
+    ports:
+      - "8081:8081" # Flink dashboard
+    environment:
+      # the hostname or ip address where the jobmanager can be reached by taskmanagers
+      JOB_MANAGER_RPC_ADDRESS: flink-jobmanager
+    command: jobmanager
+    networks:
+      - kafka-flink-network
+
+  # the worker nodes that execute the actual tasks in a Flink job
+  flink-taskmanager:
+    image: flink:latest
+    container_name: flink-taskmanager
+    depends_on:
+      - flink-jobmanager
+    environment:
+      JOB_MANAGER_RPC_ADDRESS: flink-jobmanager
+      TASK_MANAGER_NUMBER_OF_TASK_SLOTS: 4
+    command: taskmanager
+    networks:
+      - kafka-flink-network
+
+  producer:
+    build:
+      context: ./producer
+    container_name: producer
+    ports:
+      - "8000:8000"
+    environment:
+      - BOOTSTRAP_HOST=kafka
+      - BOOTSTRAP_PORT=9092
+    depends_on:
+      - kafka
+    networks:
+      - kafka-flink-network
+
+  consumer:
+    build:
+      context: ./consumer
+    container_name: consumer
+    environment:
+      - BOOTSTRAP_HOST=kafka
+      - BOOTSTRAP_PORT=9092
+    depends_on:
+      - kafka
+    networks:
+      - kafka-flink-network
+
+volumes:
+  kafka_data:
+    driver: local
+  
+networks:
+  kafka-flink-network:
+    driver: bridge
