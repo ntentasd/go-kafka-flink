@@ -32,6 +32,32 @@ services:
     networks:
       - kafka-flink-network
 
+  init-kafka:
+    image: bitnami/kafka:latest
+    container_name: init_kafka
+    depends_on:
+      - kafka
+    entrypoint: [ '/bin/sh', '-c' ]
+    command: |
+      "
+      # blocks until kafka is reachable
+      kafka-topics.sh --bootstrap-server kafka:9092 --list
+
+      echo -e 'Creating kafka topics'
+      kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic input-topic --replication-factor 1 --partitions 3
+      kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic output-topic --replication-factor 1 --partitions 3
+
+      echo -e 'Successfully created the following topics:'
+      kafka-topics.sh --bootstrap-server kafka:9092 --list
+      "
+    networks:
+      - kafka-flink-network
+    healthcheck:
+      test: ["CMD", "bash", "-c", "kafka-topics.sh --bootstrap-server kafka:9092 --list && echo 'Topics created'"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
   # the central node responsible for orchestration and scheduling of jobs
   flink-jobmanager:
     image: flink:latest
@@ -42,6 +68,9 @@ services:
       # the hostname or ip address where the jobmanager can be reached by taskmanagers
       JOB_MANAGER_RPC_ADDRESS: flink-jobmanager
     command: jobmanager
+    depends_on:
+      init-kafka:
+        condition: service_completed_successfully
     networks:
       - kafka-flink-network
 
@@ -55,6 +84,7 @@ services:
       JOB_MANAGER_RPC_ADDRESS: flink-jobmanager
       TASK_MANAGER_NUMBER_OF_TASK_SLOTS: 4
     command: taskmanager
+
     networks:
       - kafka-flink-network
 
@@ -68,7 +98,8 @@ services:
       - BOOTSTRAP_HOST=kafka
       - BOOTSTRAP_PORT=9092
     depends_on:
-      - kafka
+      init-kafka:
+        condition: service_completed_successfully
     networks:
       - kafka-flink-network
 
@@ -80,7 +111,8 @@ services:
       - BOOTSTRAP_HOST=kafka
       - BOOTSTRAP_PORT=9092
     depends_on:
-      - kafka
+      init-kafka:
+        condition: service_completed_successfully
     networks:
       - kafka-flink-network
 
