@@ -11,7 +11,7 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN go build -o producer .
+RUN go build -o main .
 
 # Create a runtime image
 FROM alpine:latest AS runtime
@@ -20,7 +20,7 @@ FROM alpine:latest AS runtime
 WORKDIR /app
 
 # Copy the binary from the builder stage
-COPY --from=builder /app/producer .
+COPY --from=builder /app/main .
 
 # Run the application
-CMD ["./producer"]
+CMD ["./main"]
